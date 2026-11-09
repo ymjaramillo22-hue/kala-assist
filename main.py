@@ -23,24 +23,36 @@ async def recibir_mensaje(request: Request):
     data = await request.json()
     
     try:
-        celular_remitente = data.get("sender", "")
-        mensaje_texto = data.get("text", "").strip()
+        celular_remitente = str(data.get("sender", "")).strip()
+        mensaje_texto = str(data.get("text", "")).strip()
         
-        df_creditos = pd.read_csv(url_creditos)
+        # Limpieza de prefijo de país (+57 o 57) para matchear con el Excel
+        celular_limpio = celular_remitente
+        if celular_limpio.startswith("57") and len(celular_limpio) > 10:
+            celular_limpio = celular_limpio[2:]
+        elif celular_limpio.startswith("+57"):
+            celular_limpio = celular_limpio[3:]
+            
         df_asesores = pd.read_csv(url_asesores)
+        df_asesores['Telefono_WhatsApp'] = df_asesores['Telefono_WhatsApp'].astype(str).str.replace(r'\D', '', regex=True)
         
-        col_cedula = [c for c in df_creditos.columns if 'CEDULA' in c.upper() or 'CÉDULA' in c.upper()][0]
-        df_asesores['Telefono_WhatsApp'] = pd.to_numeric(df_asesores['Telefono_WhatsApp'], errors='coerce')
-        
-        asesor_registrado = df_asesores[df_asesores['Telefono_WhatsApp'] == pd.to_numeric(celular_remitente, errors='coerce')]
+        asesor_registrado = df_asesores[df_asesores['Telefono_WhatsApp'] == celular_limpio]
         
         if asesor_registrado.empty:
             return {"reply": "❌ Acceso denegado: Este número no está registrado como asesor autorizado en KALA."}
         
         nombre_asesor = asesor_registrado.iloc[0]['Nombre_Asesor']
         
+        # Si el usuario manda un saludo o texto que no es cédula, KALA saluda y guía
+        if not mensaje_texto.isdigit():
+            return {"reply": f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**. Por favor, escríbeme el **número de cédula** del cliente que deseas consultar para verificar su estado y las alertas pendientes."}
+        
+        # Si es una cédula, consultamos los créditos
+        df_creditos = pd.read_csv(url_creditos)
+        col_cedula = [c for c in df_creditos.columns if 'CEDULA' in c.upper() or 'CÉDULA' in c.upper()][0]
+        
         df_creditos['Cedula_Clean'] = pd.to_numeric(df_creditos[col_cedula], errors='coerce').fillna(0).astype(int)
-        cedula_int = int(mensaje_texto) if mensaje_texto.isdigit() else 0
+        cedula_int = int(mensaje_texto)
         
         df_creditos['Asesor_Clean'] = df_creditos['Asesor'].astype(str).str.strip().str.upper()
         nombre_asesor_clean = str(nombre_asesor).strip().upper()
@@ -69,7 +81,7 @@ async def recibir_mensaje(request: Request):
         system_instruction = "Eres KALA Assist, asistente de postventa para asesores KALA. Usa emojis y viñetas de WhatsApp."
         
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-2.5-flash',
             contents=prompt_contexto,
             config=types.GenerateContentConfig(system_instruction=system_instruction)
         )
@@ -77,4 +89,4 @@ async def recibir_mensaje(request: Request):
         return {"reply": response.text}
 
     except Exception as e:
-        return {"reply": f"Ocurrió un evento en el servidor: {str(e)}"}
+        return {"reply": f"Ocurrió un evento en el servidor: {str(e)}"} 
