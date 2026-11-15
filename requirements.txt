@@ -2,3 +2,4 @@ fastapi
 uvicorn
 pandas
 google-genai
+python-multipart
