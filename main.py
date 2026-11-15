@@ -20,7 +20,7 @@ def home():
 
 @app.post("/webhook")
 async def recibir_mensaje(request: Request):
-    data = await request.json()
+    data = await request.form()
     
     try:
         celular_remitente = str(data.get("sender", "")).strip()
