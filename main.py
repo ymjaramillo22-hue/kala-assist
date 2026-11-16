@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from fastapi import FastAPI, Request, response
+from fastapi import FastAPI, Request, Response
 from google import genai
 from google.genai import types
 
