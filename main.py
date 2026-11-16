@@ -20,18 +20,17 @@ def home():
 
 @app.post("/webhook")
 async def recibir_mensaje(request: Request):
-    data = await request.form()
-    
     try:
-       celular_remitente = str(data.get("From", "")).strip()
-    mensaje_texto = str(data.get("Body", "")).strip()
-    
-    # Quitar la palabra whatsapp: y limpiar el prefijo de país (+57 o 57)
-    celular_limpio = celular_remitente.replace("whatsapp:", "").strip()
-    if celular_limpio.startswith("+57"):
-        celular_limpio = celular_limpio[3:]
-    elif celular_limpio.startswith("57") and len(celular_limpio) > 10:
-        celular_limpio = celular_limpio[2:]
+        data = await request.form()
+        celular_remitente = str(data.get("From", "")).strip()
+        mensaje_texto = str(data.get("Body", "")).strip()
+        
+        # Limpieza de prefijo de país y etiqueta de whatsapp
+        celular_limpio = celular_remitente.replace("whatsapp:", "").strip()
+        if celular_limpio.startswith("+57"):
+            celular_limpio = celular_limpio[3:]
+        elif celular_limpio.startswith("57") and len(celular_limpio) > 10:
+            celular_limpio = celular_limpio[2:]
             
         df_asesores = pd.read_csv(url_asesores)
         df_asesores['Telefono_WhatsApp'] = df_asesores['Telefono_WhatsApp'].astype(str).str.replace(r'\D', '', regex=True)
@@ -39,13 +38,17 @@ async def recibir_mensaje(request: Request):
         asesor_registrado = df_asesores[df_asesores['Telefono_WhatsApp'] == celular_limpio]
         
         if asesor_registrado.empty:
-            return {"reply": "❌ Acceso denegado: Este número no está registrado como asesor autorizado en KALA."}
+            texto_respuesta = f"❌ Acceso denegado: El número {celular_limpio} no está registrado como asesor autorizado en KALA."
+            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+            return Response(content=xml_respuesta, media_type="application/xml")
         
         nombre_asesor = asesor_registrado.iloc[0]['Nombre_Asesor']
         
         # Si el usuario manda un saludo o texto que no es cédula, KALA saluda y guía
         if not mensaje_texto.isdigit():
-            return {"reply": f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**. Por favor, escríbeme el **número de cédula** del cliente que deseas consultar para verificar su estado y las alertas pendientes."}
+            texto_respuesta = f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**. Por favor, escríbeme el **número de cédula** del cliente que deseas consultar para verificar su estado y las alertas pendientes."
+            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+            return Response(content=xml_respuesta, media_type="application/xml")
         
         # Si es una cédula, consultamos los créditos
         df_creditos = pd.read_csv(url_creditos)
@@ -63,7 +66,9 @@ async def recibir_mensaje(request: Request):
         ]
         
         if resultado.empty:
-            return {"reply": f"⚠️ Hola {nombre_asesor}, no se encontraron créditos asignados a tu nombre con la cédula {mensaje_texto}."}
+            texto_respuesta = f"⚠️ Hola {nombre_asesor}, no se encontraron créditos asignados a tu nombre con la cédula {mensaje_texto}."
+            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+            return Response(content=xml_respuesta, media_type="application/xml")
         
         fila_datos = resultado.iloc[0]
         
@@ -86,7 +91,11 @@ async def recibir_mensaje(request: Request):
             config=types.GenerateContentConfig(system_instruction=system_instruction)
         )
         
-        return {"reply": response.text}
+        texto_respuesta = response.text
+        xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+        return Response(content=xml_respuesta, media_type="application/xml")
 
     except Exception as e:
-        return {"reply": f"Ocurrió un evento en el servidor: {str(e)}"} 
+        texto_respuesta = f"Ocurrió un evento en el servidor: {str(e)}"
+        xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+        return Response(content=xml_respuesta, media_type="application/xml")
