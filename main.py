@@ -23,15 +23,15 @@ async def recibir_mensaje(request: Request):
     data = await request.form()
     
     try:
-        celular_remitente = str(data.get("From", "")).strip()
-        mensaje_texto = str(data.get("Body", "")).strip()
-        
-        # Limpieza de prefijo de país (+57 o 57) para matchear con el Excel
-        celular_limpio = celular_remitente
-        if celular_limpio.startswith("57") and len(celular_limpio) > 10:
-            celular_limpio = celular_limpio[2:]
-        elif celular_limpio.startswith("+57"):
-            celular_limpio = celular_limpio[3:]
+       celular_remitente = str(data.get("From", "")).strip()
+    mensaje_texto = str(data.get("Body", "")).strip()
+    
+    # Quitar la palabra whatsapp: y limpiar el prefijo de país (+57 o 57)
+    celular_limpio = celular_remitente.replace("whatsapp:", "").strip()
+    if celular_limpio.startswith("+57"):
+        celular_limpio = celular_limpio[3:]
+    elif celular_limpio.startswith("57") and len(celular_limpio) > 10:
+        celular_limpio = celular_limpio[2:]
             
         df_asesores = pd.read_csv(url_asesores)
         df_asesores['Telefono_WhatsApp'] = df_asesores['Telefono_WhatsApp'].astype(str).str.replace(r'\D', '', regex=True)
