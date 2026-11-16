@@ -23,8 +23,8 @@ async def recibir_mensaje(request: Request):
     data = await request.form()
     
     try:
-        celular_remitente = str(data.get("sender", "")).strip()
-        mensaje_texto = str(data.get("text", "")).strip()
+        celular_remitente = str(data.get("From", "")).strip()
+        mensaje_texto = str(data.get("Body", "")).strip()
         
         # Limpieza de prefijo de país (+57 o 57) para matchear con el Excel
         celular_limpio = celular_remitente
