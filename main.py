@@ -27,8 +27,21 @@ async def recibir_mensaje(request: Request):
         celular_remitente = str(data.get("From", "")).strip()
         mensaje_texto = str(data.get("Body", "")).strip()
         
-        # Validación de si el usuario envió un archivo o documento adjunto
-        num_media = int(data.get("NumMedia", "0"))
+        # Detección segura de archivos adjuntos (PDFs, imágenes, etc.) en Twilio
+        num_media = data.get("NumMedia", "0")
+        tiene_archivo = False
+        try:
+            if int(num_media) > 0:
+                tiene_archivo = True
+        except:
+            pass
+            
+        # Si Twilio envía campos multimedia en la petición
+        if not tiene_archivo:
+            for key in data.keys():
+                if "MediaContentType" in key or "MediaUrl" in key:
+                    tiene_archivo = True
+                    break
         
         # Limpieza de prefijo de país y etiqueta de whatsapp
         celular_limpio = celular_remitente.replace("whatsapp:", "").strip()
@@ -49,8 +62,8 @@ async def recibir_mensaje(request: Request):
         
         nombre_asesor = str(asesor_registrado.iloc[0]['Nombre_Asesor']).strip()
         
-        # Si el usuario adjunta un documento (imagen o PDF)
-        if num_media > 0:
+        # Si el usuario adjuntó un documento, respondemos con la confirmación profesional
+        if tiene_archivo:
             texto_respuesta = (
                 f"✅ ¡Recibido y verificado, {nombre_asesor}!\n\n"
                 f"📄 El documento ha sido adjuntado correctamente al expediente del cliente.\n"
@@ -123,11 +136,10 @@ async def recibir_mensaje(request: Request):
         etapa_val = str(fila_datos.get(col_etapa, 'N/A')).strip()
         alertas_val = str(fila_datos.get(col_alertas, 'Ninguna')).strip()
         
-        # Si hay múltiples alertas, las separamos por saltos de línea para que se vean claras
+        # Múltiples alertas formateadas limpiamente en viñetas
         lista_alertas = alertas_val.replace("\\n", "\n").split("\n")
         alertas_formateadas = "\n".join([f"   • {alerta.strip()}" for alerta in lista_alertas if alerta.strip()])
         
-        # Respuesta estructurada guiando al asesor
         texto_resumen = (
             f"📋 *Estado del Crédito - KALA*\n\n"
             f"👤 *Cliente:* {nombre_cliente}\n"
