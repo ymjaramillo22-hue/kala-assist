@@ -1,4 +1,5 @@
 import os
+import unicodedata
 import pandas as pd
 from fastapi import FastAPI, Request, Response
 
@@ -8,6 +9,12 @@ SHEET_ID = "19kkoRLxDnAGF96QUm7NBq9r2M2poQ09y_Ko_w72olNQ"
 
 url_creditos = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Base_Creditos"
 url_asesores = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Asesores_Autorizados"
+
+def limpiar_texto(texto):
+    if not isinstance(texto, str):
+        return ""
+    nfkd = unicodedata.normalize('NFKD', texto)
+    return "".join([c for c in nfkd if not unicodedata.combining(c)]).strip().upper()
 
 @app.get("/")
 def home():
@@ -54,7 +61,7 @@ async def recibir_mensaje(request: Request):
         if not mensaje_texto.isdigit():
             texto_respuesta = (
                 f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**.\n\n"
-                f"Por favor, envíame el **número de cédula** del cliente a consultar o escribe un número de opción:\n"
+                f"Por favor, envíame el **número de cédula** del cliente a consultar o escribe una opción:\n"
                 f"• Envía la **cédula** para consultar estado\n"
                 f"• Marca **2** para finalizar el chat"
             )
@@ -64,13 +71,15 @@ async def recibir_mensaje(request: Request):
         # Si es una cédula, consultamos los créditos
         df_creditos = pd.read_csv(url_creditos)
         
-        # Búsqueda flexible de columnas para evitar N/A
-        col_cedula = next((c for c in df_creditos.columns if 'CEDULA' in c.upper() or 'CÉDULA' in c.upper()), None)
-        col_cliente = next((c for c in df_creditos.columns if 'CLIENTE' in c.upper() or 'NOMBRE' in c.upper()), None)
-        col_pagaduria = next((c for c in df_creditos.columns if 'PAGADURIA' in c.upper() or 'PAGADURÍA' in c.upper()), None)
-        col_etapa = next((c for c in df_creditos.columns if 'ETAPA' in c.upper()), None)
-        col_alertas = next((c for c in df_creditos.columns if 'ALERTA' in c.upper()), None)
-        col_asesor = next((c for c in df_creditos.columns if 'ASESOR' in c.upper()), None)
+        # Mapeo flexible sin importar tildes ni mayúsculas
+        columnas_map = {limpiar_texto(c): c for c in df_creditos.columns}
+        
+        col_cedula = next((columnas_map[c] for c in columnas_map if 'CEDULA' in c), None)
+        col_cliente = next((columnas_map[c] for c in columnas_map if 'CLIENTE' in c or 'NOMBRE' in c), None)
+        col_pagaduria = next((columnas_map[c] for c in columnas_map if 'PAGADUR' in c), None)
+        col_etapa = next((columnas_map[c] for c in columnas_map if 'ETAPA' in c), None)
+        col_alertas = next((columnas_map[c] for c in columnas_map if 'ALERTA' in c), None)
+        col_asesor = next((columnas_map[c] for c in columnas_map if 'ASESOR' in c), None)
         
         df_creditos['Cedula_Clean'] = pd.to_numeric(df_creditos[col_cedula], errors='coerce').fillna(0).astype(int)
         cedula_int = int(mensaje_texto)
