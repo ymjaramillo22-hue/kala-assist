@@ -42,7 +42,7 @@ async def recibir_mensaje(request: Request):
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
         
-        nombre_asesor = asesor_registrado.iloc[0]['Nombre_Asesor']
+        nombre_asesor = str(asesor_registrado.iloc[0]['Nombre_Asesor']).strip()
         
         # Si el usuario manda un saludo o texto que no es cédula, KALA saluda y guía
         if not mensaje_texto.isdigit():
@@ -58,7 +58,7 @@ async def recibir_mensaje(request: Request):
         cedula_int = int(mensaje_texto)
         
         df_creditos['Asesor_Clean'] = df_creditos['Asesor'].astype(str).str.strip().str.upper()
-        nombre_asesor_clean = str(nombre_asesor).strip().upper()
+        nombre_asesor_clean = nombre_asesor.upper()
         
         resultado = df_creditos[
             (df_creditos['Asesor_Clean'] == nombre_asesor_clean) & 
@@ -72,27 +72,18 @@ async def recibir_mensaje(request: Request):
         
         fila_datos = resultado.iloc[0]
         
-        prompt_contexto = f"""
-        El asesor {nombre_asesor} consultó el crédito con la cédula {mensaje_texto}.
-        Datos del crédito:
-        - Cliente: {fila_datos.get('Nombre_Cliente', 'N/A')}
-        - Pagaduría: {fila_datos.get('Pagaduria', 'N/A')}
-        - Etapa Actual: {fila_datos.get('Etapa', 'N/A')}
-        - Alertas: {fila_datos.get('Alertas_Pendientes', 'Ninguna')}
-        
-        Genera una respuesta muy bien formateada para WhatsApp confirmando estos datos y dándole la opción de adjuntar soporte para subsanar.
-        """
-        
-        system_instruction = "Eres KALA Assist, asistente de postventa para asesores KALA. Usa emojis y viñetas de WhatsApp."
-        
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=prompt_contexto,
-            config=types.GenerateContentConfig(system_instruction=system_instruction)
+        # Respuesta directa y rápida sin demoras de IA para asegurar entrega inmediata en WhatsApp
+        texto_resumen = (
+            f"📋 *Estado del Crédito - KALA*\n\n"
+            f"👤 *Cliente:* {fila_datos.get('Nombre_Cliente', 'N/A')}\n"
+            f"🆔 *Cédula:* {mensaje_texto}\n"
+            f"🏢 *Pagaduría:* {fila_datos.get('Pagaduria', 'N/A')}\n"
+            f"📌 *Etapa Actual:* {fila_datos.get('Etapa', 'N/A')}\n"
+            f"⚡ *Alertas:* {fila_datos.get('Alertas_Pendientes', 'Ninguna')}\n\n"
+            f"*(Asesor a cargo: {nombre_asesor})*"
         )
         
-        texto_respuesta = response.text
-        xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+        xml_respuesta = f"<Response><Message>{texto_resumen}</Message></Response>"
         return Response(content=xml_respuesta, media_type="application/xml")
 
     except Exception as e:
