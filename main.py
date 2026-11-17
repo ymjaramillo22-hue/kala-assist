@@ -10,6 +10,10 @@ SHEET_ID = "19kkoRLxDnAGF96QUm7NBq9r2M2poQ09y_Ko_w72olNQ"
 url_creditos = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Base_Creditos"
 url_asesores = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Asesores_Autorizados"
 
+# Diccionario temporal en memoria para rastrear en qué alerta va cada asesor mientras chatea
+# Estructura: { celular: { "cedula": "...", "alertas": [...], "indice_actual": 0 } }
+sesiones_activas = {}
+
 def limpiar_texto(texto):
     if not isinstance(texto, str):
         return ""
@@ -27,7 +31,7 @@ async def recibir_mensaje(request: Request):
         celular_remitente = str(data.get("From", "")).strip()
         mensaje_texto = str(data.get("Body", "")).strip()
         
-        # Detección segura de archivos adjuntos (PDFs, imágenes, etc.) en Twilio
+        # Detección de archivos adjuntos (opcionales)
         num_media = data.get("NumMedia", "0")
         tiene_archivo = False
         try:
@@ -36,7 +40,6 @@ async def recibir_mensaje(request: Request):
         except:
             pass
             
-        # Si Twilio envía campos multimedia en la petición
         if not tiene_archivo:
             for key in data.keys():
                 if "MediaContentType" in key or "MediaUrl" in key:
@@ -62,35 +65,64 @@ async def recibir_mensaje(request: Request):
         
         nombre_asesor = str(asesor_registrado.iloc[0]['Nombre_Asesor']).strip()
         
-        # Si el usuario adjuntó un documento, respondemos con la confirmación profesional
-        if tiene_archivo:
-            texto_respuesta = (
-                f"✅ ¡Recibido y verificado, {nombre_asesor}!\n\n"
-                f"📄 El documento ha sido adjuntado correctamente al expediente del cliente.\n"
-                f"🔄 Este caso pasará a revisión una vez sean subsanadas todas las alertas pendientes.\n\n"
-                f"¿Deseas consultar otro número de cédula o finalizar?\n"
-                f"• Envía otra **cédula** para nueva consulta\n"
-                f"• Marca **2** para finalizar el chat"
-            )
+        # Opción 2 para finalizar el chat en cualquier momento
+        if mensaje_texto == "2":
+            if celular_limpio in sesiones_activas:
+                del sesiones_activas[celular_limpio]
+            texto_respuesta = f"👋 Chat finalizado con éxito. Gracias por usar KALA Assist, {nombre_asesor}. ¡Muchos éxitos en tus gestiones!"
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
 
-        # Manejo de opciones de menú si el usuario presiona 1 o 2
+        # Verificamos si el asesor está en un proceso activo de subsanación de alertas
+        if celular_limpio in sesiones_activas:
+            sesion = sesiones_activas[celular_limpio]
+            
+            # El comentario es obligatorio (si manda texto o si manda archivo acompañado de texto explicativo)
+            if not mensaje_texto and not tiene_archivo:
+                texto_respuesta = "⚠️ Por favor, escribe un comentario obligatorio explicando cómo se subsana esta alerta (el soporte adjunto es opcional)."
+                xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                return Response(content=xml_respuesta, media_type="application/xml")
+            
+            # Avanzamos a la siguiente alerta pendiente
+            sesion["indice_actual"] += 1
+            
+            # Si aún quedan alertas por resolver
+            if sesion["indice_actual"] < len(sesion["alertas"]):
+                alerta_siguiente = sesion["alertas"][sesion["indice_actual"]]
+                texto_respuesta = (
+                    f"✅ ¡Comentario registrado correctamente!\n\n"
+                    f"⚠️ *Siguiente alerta pendiente ({sesion['indice_actual'] + 1} de {len(sesion['alertas'])}):*\n"
+                    f"{alerta_siguiente}\n\n"
+                    f"💡 *Recomendación KALA:* Escribe tu comentario obligatorio explicando la solución y opcionalmente adjunta el soporte.\n"
+                    f"*(O marca **2** para finalizar)*"
+                )
+                xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                return Response(content=xml_respuesta, media_type="application/xml")
+            else:
+                # Ya se resolvieron todas las alertas
+                cedula_consultada = sesion["cedula"]
+                del sesiones_activas[celular_limpio]
+                
+                texto_respuesta = (
+                    f"🎉 ¡Excelente, {nombre_asesor}! Has subsanado todas las alertas del crédito con cédula {cedula_consultada}.\n\n"
+                    f"🔄 El expediente ha sido actualizado a estado **Estudio Subsanado** y enviado a revisión final por mesa de control.\n\n"
+                    f"¿Deseas consultar otro número de cédula o finalizar?\n"
+                    f"• Envía otra **cédula** para nueva consulta\n"
+                    f"• Marca **2** para finalizar"
+                )
+                xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                return Response(content=xml_respuesta, media_type="application/xml")
+
+        # Manejo si presiona 1 para iniciar el proceso de subsanación de un crédito previamente consultado
         if mensaje_texto == "1":
             texto_respuesta = (
                 f"📂 ¡Perfecto, {nombre_asesor}!\n\n"
-                f"💡 *Recomendación KALA:* Recuerda adjuntar un documento completamente legible, sin tachones y que corresponda exactamente al proceso observado para agilizar la aprobación del crédito.\n\n"
-                f"📎 Por favor, envía por este medio el soporte correspondiente."
+                f"💡 *Instrucción KALA:* Vamos a resolver las alertas una por una. Por favor, escribe tu **comentario obligatorio** explicando la solución (el soporte adjunto es opcional)."
             )
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
-            
-        if mensaje_texto == "2":
-            texto_respuesta = f"👋 Chat finalizado con éxito. Gracias por usar KALA Assist, {nombre_asesor}. ¡Muchos éxitos en tus gestiones comerciales!"
-            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
-            return Response(content=xml_respuesta, media_type="application/xml")
 
-        # Si el usuario manda un saludo o texto que no es cédula ni opción de menú
+        # Si el usuario manda un saludo o texto que no es cédula ni opción
         if not mensaje_texto.isdigit():
             texto_respuesta = (
                 f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**.\n\n"
@@ -136,9 +168,17 @@ async def recibir_mensaje(request: Request):
         etapa_val = str(fila_datos.get(col_etapa, 'N/A')).strip()
         alertas_val = str(fila_datos.get(col_alertas, 'Ninguna')).strip()
         
-        # Múltiples alertas formateadas limpiamente en viñetas
-        lista_alertas = alertas_val.replace("\\n", "\n").split("\n")
-        alertas_formateadas = "\n".join([f"   • {alerta.strip()}" for alerta in lista_alertas if alerta.strip()])
+        # Separar las alertas para manejarlas de forma individual
+        lista_alertas = [a.strip() for a in alertas_val.replace("\\n", "\n").split("\n") if a.strip()]
+        
+        # Guardamos la sesión activa para este asesor
+        sesiones_activas[celular_limpio] = {
+            "cedula": mensaje_texto,
+            "alertas": lista_alertas,
+            "indice_actual": 0
+        }
+        
+        primera_alerta = lista_alertas[0] if lista_alertas else "Ninguna"
         
         texto_resumen = (
             f"📋 *Estado del Crédito - KALA*\n\n"
@@ -146,11 +186,12 @@ async def recibir_mensaje(request: Request):
             f"🆔 *Cédula:* {mensaje_texto}\n"
             f"🏢 *Pagaduría:* {pagaduria_val}\n"
             f"📌 *Etapa Actual:* {etapa_val}\n"
-            f"⚡ *Alertas pendientes:*\n{alertas_formateadas}\n\n"
-            f"👉 *Acciones disponibles:*\n"
-            f"1️⃣ Presiona **1** para subsanar alertas\n"
-            f"2️⃣ Presiona **2** para finalizar chat\n\n"
-            f"*(Asesor a cargo: {nombre_asesor})*"
+            f"⚡ *Total Alertas Pendientes:* {len(lista_alertas)}\n\n"
+            f"🔍 *Comenzamos con la Alerta 1 de {len(lista_alertas)}:*\n"
+            f"   • {primera_alerta}\n\n"
+            f"👉 *Acción requerida:*\n"
+            f"Presiona **1** para redactar tu comentario obligatorio y adjuntar soporte para esta alerta.\n"
+            f"*(O marca **2** para finalizar chat)*"
         )
         
         xml_respuesta = f"<Response><Message>{texto_resumen}</Message></Response>"
