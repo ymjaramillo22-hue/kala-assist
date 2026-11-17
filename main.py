@@ -10,7 +10,8 @@ SHEET_ID = "19kkoRLxDnAGF96QUm7NBq9r2M2poQ09y_Ko_w72olNQ"
 url_creditos = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Base_Creditos"
 url_asesores = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Asesores_Autorizados"
 
-# Estructura en memoria: { celular: { "cedula": "...", "alertas": [...] } }
+# Estructura de sesiones robusta en memoria:
+# { celular: { "cedula": "...", "alertas_pendientes": [...], "etapa": "menu_alertas" / "esperando_comentario" / "preguntar_continuar" } }
 sesiones_activas = {}
 
 def limpiar_texto(texto):
@@ -64,55 +65,98 @@ async def recibir_mensaje(request: Request):
         
         nombre_asesor = str(asesor_registrado.iloc[0]['Nombre_Asesor']).strip()
         
-        # Opción 2 para finalizar el chat en cualquier momento
-        if mensaje_texto == "2":
-            if celular_limpio in sesiones_activas:
-                del sesiones_activas[celular_limpio]
-            texto_respuesta = f"👋 Chat finalizado con éxito. Gracias por usar KALA Assist, {nombre_asesor}. ¡Muchos éxitos en tus gestiones!"
-            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
-            return Response(content=xml_respuesta, media_type="application/xml")
-
-        # Si el asesor seleccionó el número de la alerta a subsanar (ej. 1 o 2)
-        if celular_limpio in sesiones_activas and sesiones_activas[celular_limpio].get("esperando_seleccion"):
+        # Manejo de sesiones activas según la etapa en la que vaya el asesor
+        if celular_limpio in sesiones_activas:
             sesion = sesiones_activas[celular_limpio]
-            if mensaje_texto.isdigit():
-                opcion_num = int(mensaje_texto)
-                if 1 <= opcion_num <= len(sesion["alertas"]):
-                    alerta_seleccionada = sesion["alertas"][opcion_num - 1]
-                    sesion["esperando_seleccion"] = False
-                    sesion["alerta_en_proceso"] = alerta_seleccionada
+            etapa = sesion.get("etapa")
+            
+            # ETAPA 1: El asesor seleccionó el número de la alerta a subsanar
+            if etapa == "menu_alertas":
+                if mensaje_texto.isdigit():
+                    opcion_num = int(mensaje_texto)
+                    alertas_actuales = sesion["alertas_pendientes"]
                     
+                    if 1 <= opcion_num <= len(alertas_actuales):
+                        alerta_elegida = alertas_actuales[opcion_num - 1]
+                        sesion["alerta_en_proceso"] = alerta_elegida
+                        sesion["etapa"] = "esperando_comentario"
+                        
+                        texto_respuesta = (
+                            f"📂 ¡Perfecto, {nombre_asesor}!\n\n"
+                            f"🎯 *Alerta seleccionada:*\n{alerta_elegida}\n\n"
+                            f"💡 *Recomendación KALA:* Deja el comentario para subsanar la alerta de forma clara y precisa y, de ser necesario, adjunta el documento soporte legible (sin tachones ni enmedaduras).\n\n"
+                            f"📎 Por favor, envía tu comentario obligatorio y opcionalmente el soporte."
+                        )
+                        xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                        return Response(content=xml_respuesta, media_type="application/xml")
+            
+            # ETAPA 2: El asesor está enviando el comentario y/o soporte para la alerta elegida
+            elif etapa == "esperando_comentario":
+                if not mensaje_texto and not tiene_archivo:
+                    texto_respuesta = "⚠️ Debes enviar el **comentario obligatorio** explicando cómo se subsana la alerta (el soporte adjunto es opcional)."
+                    xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                    return Response(content=xml_respuesta, media_type="application/xml")
+                
+                # Eliminamos la alerta que acaba de ser subsanada de la lista pendiente
+                alerta_resuelta = sesion["alerta_en_proceso"]
+                if alerta_resuelta in sesion["alertas_pendientes"]:
+                    sesion["alertas_pendientes"].remove(alerta_resuelta)
+                
+                sesion["alerta_en_proceso"] = None
+                
+                # Verificamos si aún quedan alertas pendientes
+                if len(sesion["alertas_pendientes"]) > 0:
+                    sesion["etapa"] = "preguntar_continuar"
                     texto_respuesta = (
-                        f"📂 ¡Perfecto, {nombre_asesor}!\n\n"
-                        f"🎯 *Alerta seleccionada:* #{opcion_num} {alerta_seleccionada}\n\n"
-                        f"💡 *Recomendación KALA:* Recuerda dejar tu **comentario obligatorio** explicando la solución y, en caso de que aplique, adjuntar soporte **completamente legible, sin tachones y sin enmedaduras** para que el crédito pase a estudio.\n\n"
-                        f"📎 Por favor, escribe tu comentario y opcionalmente adjunta el soporte correspondiente."
+                        f"✅ ¡Subsanado con éxito, {nombre_asesor}!\n\n"
+                        f"¿Deseas subsanar otra alerta?\n"
+                        f"1️⃣ - Sí\n"
+                        f"2️⃣ - Finalizar chat"
+                    )
+                    xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                    return Response(content=xml_respuesta, media_type="application/xml")
+                else:
+                    # ¡Cero alertas pendientes! El crédito viaja a estudio con éxito
+                    cedula_fin = sesion["cedula"]
+                    del sesiones_activas[celular_limpio]
+                    texto_respuesta = (
+                        f"🎉 ¡Completaste todas las alertas pendientes, {nombre_asesor}!\n\n"
+                        f"🚀 El crédito con cédula {cedula_fin} viaja a estudio y ha sido actualizado a **Estudio Subsanado**.\n\n"
+                        f"Envía otra **cédula** cuando desees realizar una nueva consulta."
                     )
                     xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
                     return Response(content=xml_respuesta, media_type="application/xml")
 
-        # Si el asesor está enviando el comentario y/o soporte para la alerta elegida
-        if celular_limpio in sesiones_activas and sesiones_activas[celular_limpio].get("alerta_en_proceso"):
-            if not mensaje_texto and not tiene_archivo:
-                texto_respuesta = "⚠️ Debes enviar el **comentario obligatorio** explicando cómo se subsana la alerta (el soporte adjunto es opcional)."
-                xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
-                return Response(content=xml_respuesta, media_type="application/xml")
-            
-            cedula_consultada = sesiones_activas[celular_limpio]["cedula"]
-            del sesiones_activas[celular_limpio]
-            
-            texto_respuesta = (
-                f"✅ ¡Recibido y verificado, {nombre_asesor}!\n\n"
-                f"📄 El comentario y soporte han sido adjuntados correctamente al expediente del crédito con cédula {cedula_consultada}.\n"
-                f"🔄 El caso ha sido actualizado a estado **Estudio Subsanado** y pasará a revisión final por mesa de control.\n\n"
-                f"¿Deseas consultar otro número de cédula o finalizar?\n"
-                f"• Envía otra **cédula** para nueva consulta\n"
-                f"• Marca **2** para finalizar el chat"
-            )
-            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
-            return Response(content=xml_respuesta, media_type="application/xml")
+            # ETAPA 3: El asesor respondió "1 - Sí" o "2 - Finalizar" tras subsanar una alerta
+            elif etapa == "preguntar_continuar":
+                if mensaje_texto == "1":
+                    # Vuelve a mostrar el listado de las alertas que aún siguen pendientes
+                    sesion["etapa"] = "menu_alertas"
+                    alertas_pendientes = sesion["alertas_pendientes"]
+                    
+                    alertas_formateadas = "\n".join([f"   • #{i+1} {alt}" for i, alt in enumerate(alertas_pendientes)])
+                    
+                    texto_respuesta = (
+                        f"🔍 *Alertas pendientes por subsanar:*\n{alertas_formateadas}\n\n"
+                        f"👉 *Acción requerida:*\n"
+                        f"Presiona **el número de la alerta** que deseas subsanar"
+                    )
+                    xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                    return Response(content=xml_respuesta, media_type="application/xml")
+                
+                elif mensaje_texto == "2":
+                    # Alerta si el asesor decide finalizar sin completar todas las alertas
+                    alertas_restantes = len(sesion.get("alertas_pendientes", []))
+                    del sesiones_activas[celular_limpio]
+                    
+                    texto_respuesta = (
+                        f"⚠️ *Alarma KALA:* Recuerda que para que el crédito viaje a estudio debes subsanar todas las alertas pendientes ({alertas_restantes} aún sin resolver).\n\n"
+                        f"👋 Chat finalizado. ¡Muchos éxitos en tus gestiones comerciales, {nombre_asesor}!"
+                    )
+                    xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+                    return Response(content=xml_respuesta, media_type="application/xml")
 
-        # Si el usuario manda un saludo o texto que no es cédula ni opción
+        # Si el usuario manda un saludo o texto que no es cédula
         if not mensaje_texto.isdigit():
             texto_respuesta = (
                 f"¡Hola, {nombre_asesor}! 🌟 Te doy la bienvenida a **KALA Assist**.\n\n"
@@ -147,7 +191,7 @@ async def recibir_mensaje(request: Request):
         ]
         
         if resultado.empty:
-            texto_respuesta = f"⚠️ Hola {nombre_asesor}, no se encontraron créditos asignados a tu nombre con la cédula {mensaje_texto}. Escribe otra cédula o marca 2 para finalizar."
+            texto_respuesta = f"⚠️ Hola {nombre_asesor}, no se encontraron créditos asignados a tu nombre con la cédula {mensaje_texto}. Escribe otra cédula."
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
         
@@ -158,16 +202,17 @@ async def recibir_mensaje(request: Request):
         etapa_val = str(fila_datos.get(col_etapa, 'N/A')).strip()
         alertas_val = str(fila_datos.get(col_alertas, 'Ninguna')).strip()
         
-        # Separar las alertas y numerarlas exactamente como lo solicitaste
+        # Separar las alertas y numerarlas
         lista_alertas = [a.strip() for a in alertas_val.replace("\\n", "\n").split("\n") if a.strip()]
         
         alertas_formateadas = "\n".join([f"   • #{i+1} {alt.replace(f'#{i+1}', '').strip()}" for i, alt in enumerate(lista_alertas)])
         
-        # Guardamos la sesión activa esperando que el asesor elija el número de la alerta
+        # Iniciamos la sesión activa en el menú de selección de alertas
         sesiones_activas[celular_limpio] = {
             "cedula": mensaje_texto,
-            "alertas": lista_alertas,
-            "esperando_seleccion": True
+            "alertas_pendientes": lista_alertas,
+            "etapa": "menu_alertas",
+            "alerta_en_proceso": None
         }
         
         texto_resumen = (
@@ -179,8 +224,7 @@ async def recibir_mensaje(request: Request):
             f"⚡ *Total Alertas Pendientes:* {len(lista_alertas)}\n\n"
             f"🔍 *Alertas pendientes:*\n{alertas_formateadas}\n\n"
             f"👉 *Acción requerida:*\n"
-            f"Presiona **el número de la alerta** que deseas subsanar\n"
-            f"*(O marca **2** para finalizar chat)*"
+            f"Presiona **el número de la alerta** que deseas subsanar"
         )
         
         xml_respuesta = f"<Response><Message>{texto_resumen}</Message></Response>"
