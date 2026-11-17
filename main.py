@@ -86,7 +86,7 @@ async def recibir_mensaje(request: Request):
         system_instruction = "Eres KALA Assist, asistente de postventa para asesores KALA. Usa emojis y viñetas de WhatsApp."
         
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt_contexto,
             config=types.GenerateContentConfig(system_instruction=system_instruction)
         )
