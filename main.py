@@ -72,7 +72,7 @@ async def recibir_mensaje(request: Request):
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
 
-        # Si el asesor ya consultó una cédula y selecciona el número de la alerta (ej. "1" o "2")
+        # Si el asesor seleccionó el número de la alerta a subsanar (ej. 1 o 2)
         if celular_limpio in sesiones_activas and sesiones_activas[celular_limpio].get("esperando_seleccion"):
             sesion = sesiones_activas[celular_limpio]
             if mensaje_texto.isdigit():
@@ -84,7 +84,7 @@ async def recibir_mensaje(request: Request):
                     
                     texto_respuesta = (
                         f"📂 ¡Perfecto, {nombre_asesor}!\n\n"
-                        f"🎯 *Alerta seleccionada:*\n{alerta_seleccionada}\n\n"
+                        f"🎯 *Alerta seleccionada:* #{opcion_num} {alerta_seleccionada}\n\n"
                         f"💡 *Recomendación KALA:* Recuerda dejar tu **comentario obligatorio** explicando la solución y, en caso de que aplique, adjuntar soporte **completamente legible, sin tachones y sin enmedaduras** para que el crédito pase a estudio.\n\n"
                         f"📎 Por favor, escribe tu comentario y opcionalmente adjunta el soporte correspondiente."
                     )
@@ -158,7 +158,7 @@ async def recibir_mensaje(request: Request):
         etapa_val = str(fila_datos.get(col_etapa, 'N/A')).strip()
         alertas_val = str(fila_datos.get(col_alertas, 'Ninguna')).strip()
         
-        # Separar las alertas para listarlas con números individuales
+        # Separar las alertas y numerarlas exactamente como lo solicitaste
         lista_alertas = [a.strip() for a in alertas_val.replace("\\n", "\n").split("\n") if a.strip()]
         
         alertas_formateadas = "\n".join([f"   • #{i+1} {alt.replace(f'#{i+1}', '').strip()}" for i, alt in enumerate(lista_alertas)])
