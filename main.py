@@ -27,6 +27,9 @@ async def recibir_mensaje(request: Request):
         celular_remitente = str(data.get("From", "")).strip()
         mensaje_texto = str(data.get("Body", "")).strip()
         
+        # Validación de si el usuario envió un archivo o documento adjunto
+        num_media = int(data.get("NumMedia", "0"))
+        
         # Limpieza de prefijo de país y etiqueta de whatsapp
         celular_limpio = celular_remitente.replace("whatsapp:", "").strip()
         if celular_limpio.startswith("+57"):
@@ -46,14 +49,31 @@ async def recibir_mensaje(request: Request):
         
         nombre_asesor = str(asesor_registrado.iloc[0]['Nombre_Asesor']).strip()
         
+        # Si el usuario adjunta un documento (imagen o PDF)
+        if num_media > 0:
+            texto_respuesta = (
+                f"✅ ¡Recibido y verificado, {nombre_asesor}!\n\n"
+                f"📄 El documento ha sido adjuntado correctamente al expediente del cliente.\n"
+                f"🔄 Este caso pasará a revisión una vez sean subsanadas todas las alertas pendientes.\n\n"
+                f"¿Deseas consultar otro número de cédula o finalizar?\n"
+                f"• Envía otra **cédula** para nueva consulta\n"
+                f"• Marca **2** para finalizar el chat"
+            )
+            xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
+            return Response(content=xml_respuesta, media_type="application/xml")
+
         # Manejo de opciones de menú si el usuario presiona 1 o 2
         if mensaje_texto == "1":
-            texto_respuesta = f"📂 ¡Perfecto, {nombre_asesor}! Por favor, adjunta o envía por este medio el soporte necesario para subsanar el crédito."
+            texto_respuesta = (
+                f"📂 ¡Perfecto, {nombre_asesor}!\n\n"
+                f"💡 *Recomendación KALA:* Recuerda adjuntar un documento completamente legible, sin tachones y que corresponda exactamente al proceso observado para agilizar la aprobación del crédito.\n\n"
+                f"📎 Por favor, envía por este medio el soporte correspondiente."
+            )
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
             
         if mensaje_texto == "2":
-            texto_respuesta = f"👋 Chat finalizado con éxito. Gracias por usar KALA Assist, {nombre_asesor}. ¡Muchos éxitos en tus gestiones!"
+            texto_respuesta = f"👋 Chat finalizado con éxito. Gracias por usar KALA Assist, {nombre_asesor}. ¡Muchos éxitos en tus gestiones comerciales!"
             xml_respuesta = f"<Response><Message>{texto_respuesta}</Message></Response>"
             return Response(content=xml_respuesta, media_type="application/xml")
 
@@ -71,7 +91,6 @@ async def recibir_mensaje(request: Request):
         # Si es una cédula, consultamos los créditos
         df_creditos = pd.read_csv(url_creditos)
         
-        # Mapeo flexible sin importar tildes ni mayúsculas
         columnas_map = {limpiar_texto(c): c for c in df_creditos.columns}
         
         col_cedula = next((columnas_map[c] for c in columnas_map if 'CEDULA' in c), None)
@@ -99,22 +118,25 @@ async def recibir_mensaje(request: Request):
         
         fila_datos = resultado.iloc[0]
         
-        # Extracción segura de valores
         nombre_cliente = str(fila_datos.get(col_cliente, 'No registrado')).strip()
         pagaduria_val = str(fila_datos.get(col_pagaduria, 'No registrada')).strip()
         etapa_val = str(fila_datos.get(col_etapa, 'N/A')).strip()
         alertas_val = str(fila_datos.get(col_alertas, 'Ninguna')).strip()
         
-        # Respuesta estructurada con guía de opciones
+        # Si hay múltiples alertas, las separamos por saltos de línea para que se vean claras
+        lista_alertas = alertas_val.replace("\\n", "\n").split("\n")
+        alertas_formateadas = "\n".join([f"   • {alerta.strip()}" for alerta in lista_alertas if alerta.strip()])
+        
+        # Respuesta estructurada guiando al asesor
         texto_resumen = (
             f"📋 *Estado del Crédito - KALA*\n\n"
             f"👤 *Cliente:* {nombre_cliente}\n"
             f"🆔 *Cédula:* {mensaje_texto}\n"
             f"🏢 *Pagaduría:* {pagaduria_val}\n"
             f"📌 *Etapa Actual:* {etapa_val}\n"
-            f"⚡ *Alertas:* {alertas_val}\n\n"
+            f"⚡ *Alertas pendientes:*\n{alertas_formateadas}\n\n"
             f"👉 *Acciones disponibles:*\n"
-            f"1️⃣ Presiona **1** para subsanar\n"
+            f"1️⃣ Presiona **1** para subsanar alertas\n"
             f"2️⃣ Presiona **2** para finalizar chat\n\n"
             f"*(Asesor a cargo: {nombre_asesor})*"
         )
